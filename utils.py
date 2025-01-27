@@ -7,6 +7,7 @@ from torchvision.transforms import Compose, ToTensor, Normalize, RandomHorizonta
 from torchvision import transforms
 
 from PIL import Image
+import numpy as np
 
 try:
     from torchvision.transforms import InterpolationMode
@@ -158,7 +159,12 @@ class AdaptiveResize(object):
             if h < self.image_size or w < self.image_size:
                 return transforms.Resize(self.image_size, self.interpolation)(img)
 
-        if h < self.size or w < self.size:
+        min_size = 480
+        if min(h, w) < min_size:
+            ratio = min_size / min(h, w)
+            h_new, w_new = int(np.round(h * ratio)), int(np.round(w * ratio))
+            return transforms.CenterCrop((h_new, w_new))(img)
+        elif h < self.size or w < self.size:
             return img
         else:
             return transforms.Resize(self.size, self.interpolation)(img)

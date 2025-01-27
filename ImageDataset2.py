@@ -158,8 +158,7 @@ class ImageDataset_qonly(Dataset):
                                                                                                           n_channels,
                                                                                                           kernel_h,
                                                                                                           kernel_w)
-
-        assert patches.size(0) >= self.num_patch
+        assert patches.size(0) >= self.num_patch, f"{patches.size(0)} {self.num_patch} {I.shape}"
         #self.num_patch = np.minimum(patches.size(0), self.num_patch)
         if self.test:
             sel_step = patches.size(0) // self.num_patch
