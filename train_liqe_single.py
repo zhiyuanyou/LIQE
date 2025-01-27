@@ -19,7 +19,7 @@ from weight_methods import WeightMethods
 qualitys = ['bad', 'poor', 'fair', 'good', 'perfect']
 
 ##############################general setup####################################
-koniq10k_set = '../IQA_Database/koniq-10k/1024x768'
+img_dir = "/data/zyyou/DataDepictQA"
 seed = 20200626
 
 torch.manual_seed(seed)
@@ -170,27 +170,20 @@ def train(model, best_result, best_epoch, srcc_dict):
 
     all_result = {'val':{}, 'test':{}}
     if (epoch >= 0):
+        srcc = eval(koniq_test_loader, phase='val', dataset='koniq10k')
+        print('**********New overall results!**********')
+        best_epoch = epoch
+        best_result = srcc
+        srcc_dict['koniq10k'] = srcc
 
-        srcc1 = eval(koniq10k_val_loader, phase='val', dataset='koniq10k')
-        srcc11 = eval(koniq10k_test_loader, phase='test', dataset='koniq10k')
-
-        srcc_avg = srcc1
-
-        current_avg = srcc_avg
-
-        if current_avg > best_result['avg']:
-            print('**********New overall best!**********')
-            best_epoch['avg'] = epoch
-            best_result['avg'] = current_avg
-            srcc_dict['koniq10k'] = srcc11
-
-            ckpt_name = os.path.join('checkpoints', str(session+1), 'liqe_qonly.pt')
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'all_results':all_result
-            }, ckpt_name)  # just change to your preferred folder/filename
+        os.makedirs(os.path.join('checkpoints', str(session+1)), exist_ok=True)
+        ckpt_name = os.path.join('checkpoints', str(session+1), 'liqe_qonly.pt')
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'all_results':all_result
+        }, ckpt_name)  # just change to your preferred folder/filename
 
     return best_result, best_epoch, srcc_dict, all_result
 
@@ -248,20 +241,22 @@ for session in range(0,1):
     # avg
     srcc_dict = {'koniq10k':0.0}
 
-    koniq10k_train_csv = os.path.join('../IQA_Database/koniq-10k/meta_info_KonIQ10kDataset.csv')
-    koniq10k_val_csv = os.path.join('../IQA_Database/koniq-10k/meta_info_KonIQ10kDataset.csv')
-    koniq10k_test_csv = os.path.join('../IQA_Database/koniq-10k/meta_info_KonIQ10kDataset.csv')
+    koniq_train_csv = "/data/zyyou/LIQE/IQA_Database/koniq-10k/train_koniq_7k.txt"
+    spaq_train_csv = "/data/zyyou/LIQE/IQA_Database/spaq/train_spaq_9k.txt"
+    kadid_train_csv = "/data/zyyou/LIQE/IQA_Database/kadid10k/train_kadid_8k.txt"
 
-    koniq10k_train_loader = set_dataset_qonly(koniq10k_train_csv, 32, koniq10k_set, num_workers, preprocess3,
+    koniq_train_loader = set_dataset_qonly(koniq_train_csv, 32, img_dir, num_workers, preprocess3,
                                               train_patch, False, set=0)
-    koniq10k_val_loader = set_dataset_qonly(koniq10k_val_csv, 32, koniq10k_set, num_workers, preprocess2,
-                                            15, True, set=1)
-    koniq10k_test_loader = set_dataset_qonly(koniq10k_test_csv, 32, koniq10k_set, num_workers, preprocess2,
+    spaq_train_loader = set_dataset_qonly(spaq_train_csv, 32, img_dir, num_workers, preprocess3,
+                                              train_patch, False, set=0)
+    kadid_train_loader = set_dataset_qonly(kadid_train_csv, 32, img_dir, num_workers, preprocess3,
+                                              train_patch, False, set=0)
+
+    koniq_test_csv = "/data/zyyou/LIQE/IQA_Database/koniq-10k/test_koniq_2k.txt"
+    koniq_test_loader = set_dataset_qonly(koniq_test_csv, 32, img_dir, num_workers, preprocess2,
                                              15, True, set=2)
 
-    train_loaders = [koniq10k_train_loader]
-
-    #train_loaders = [koniq10k_train_loader]
+    train_loaders = [koniq_train_loader, spaq_train_loader, kadid_train_loader]
 
     result_pkl = {}
     for epoch in range(0, num_epoch):
@@ -271,8 +266,8 @@ for session in range(0,1):
         result_pkl[str(epoch)] = all_result
 
         print('...............current average best...............')
-        print('best average epoch:{}'.format(best_epoch['avg']))
-        print('best average result:{}'.format(best_result['avg']))
+        print('best average epoch:{}'.format(best_epoch))
+        print('best average result:{}'.format(best_result))
         for dataset in srcc_dict.keys():
             print_text = dataset + ':' + 'srcc:{}'.format(srcc_dict[dataset])
             print(print_text)
