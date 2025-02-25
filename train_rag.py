@@ -151,10 +151,17 @@ def train(model, best_result, best_epoch, srcc_dict):
         running_duration = beta * running_duration + (1 - beta) * duration
         duration_corrected = running_duration / (1 - beta ** local_counter)
         examples_per_sec = x.size(0) / duration_corrected
-        format_str = ('(E:%d, S:%d / %d) [Loss = %.4f] (%.1f samples/sec; %.3f '
-                      'sec/batch)')
-        print(format_str % (epoch, step + 1, num_steps_per_epoch, loss_corrected,
-                            examples_per_sec, duration_corrected))
+        format_str = (
+            "(Epoch: %d, Step: %d / %d)"
+            "[Running Loss = %.4f] [Loss NCE = %.4f] [Loss MSE = %.4f] "
+            "(%.1f samples/sec; %.3f sec/batch)"
+        )
+        print(
+            format_str % (
+                epoch, step + 1, num_steps_per_epoch, loss_corrected, 
+                loss_nce, loss_mse, examples_per_sec, duration_corrected
+            )
+        )
 
         local_counter += 1
         start_time = time.time()
