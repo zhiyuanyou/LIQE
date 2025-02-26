@@ -63,6 +63,7 @@ def cal_fidelity_loss(pred_A, pred_B, gmos_A, gmos_B):
 
 
 ##############################general setup####################################
+save_dir = "2_nce+fidelity"
 img_dir = "/root/Data4ICCV"
 seed = 20200626
 
@@ -189,8 +190,8 @@ def train(model, best_result, best_epoch, srcc_dict):
         best_result = srcc
         srcc_dict['koniq10k'] = srcc
 
-        os.makedirs(os.path.join('checkpoints', str(session+1)), exist_ok=True)
-        ckpt_name = os.path.join('checkpoints', str(session+1), 'liqe_qonly.pt')
+        os.makedirs(os.path.join(f"checkpoints/{save_dir}"), exist_ok=True)
+        ckpt_name = os.path.join(f"checkpoints/{save_dir}/ckpt.pt")
         torch.save({
             'epoch': epoch,
             'model_state_dict': model.state_dict(),
@@ -211,7 +212,7 @@ def eval(test_loader, phase, dataset):
         I = I.to(device)
         q_mos = q_mos + gmos.cpu().tolist()
         with torch.no_grad():
-            _, _, pred = model(I, text)
+            _, pred = model(I, text)
         q_pred = q_pred + pred.squeeze(1).cpu().tolist()
 
     srcc = scipy.stats.mstats.spearmanr(x=q_mos, y=q_pred)[0]
@@ -222,63 +223,62 @@ def eval(test_loader, phase, dataset):
 
 
 num_workers = 8
-for session in range(0,1):
-    model = AlignModel().to(device)
+model = AlignModel().to(device)
 
-    optimizer = torch.optim.AdamW(
-        model.parameters(), lr=initial_lr,
-        weight_decay=0.001)
+optimizer = torch.optim.AdamW(
+    model.parameters(), lr=initial_lr,
+    weight_decay=0.001)
 
-    scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=5)
+scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=5)
 
-    train_loss = []
-    start_epoch = 0
+train_loss = []
+start_epoch = 0
 
-    freeze_model(opt)
+freeze_model(opt)
 
-    best_result = 0
-    best_epoch = 0
+best_result = 0
+best_epoch = 0
 
-    # avg
-    srcc_dict = {'koniq10k': 0.0}
+# avg
+srcc_dict = {'koniq10k': 0.0}
 
-    spaq_meta = "/root/Data4ICCV/metas/metas_spaq.json"
-    liveitw_meta = "/root/Data4ICCV/metas/metas_liveitw.json"
-    livefb_meta = "/root/Data4ICCV/metas/metas_livefb.json"
-    agiqa_meta = "/root/Data4ICCV/metas/metas_agiqa3k.json"
+spaq_meta = "/root/Data4ICCV/metas/metas_spaq.json"
+liveitw_meta = "/root/Data4ICCV/metas/metas_liveitw.json"
+livefb_meta = "/root/Data4ICCV/metas/metas_livefb.json"
+agiqa_meta = "/root/Data4ICCV/metas/metas_agiqa3k.json"
 
-    spaq_loader = set_dataset(spaq_meta, bs, img_dir, num_workers, preprocess3,
-                                              train_patch, False, set=0)
-    liveitw_loader = set_dataset(liveitw_meta, bs, img_dir, num_workers, preprocess3,
-                                              train_patch, False, set=0)
-    livefb_loader = set_dataset(livefb_meta, bs, img_dir, num_workers, preprocess3,
-                                              train_patch, False, set=0)
-    agiqa_loader = set_dataset(agiqa_meta, bs, img_dir, num_workers, preprocess3,
-                                              train_patch, False, set=0)
+spaq_loader = set_dataset(spaq_meta, bs, img_dir, num_workers, preprocess3,
+                                            train_patch, False, set=0)
+liveitw_loader = set_dataset(liveitw_meta, bs, img_dir, num_workers, preprocess3,
+                                            train_patch, False, set=0)
+livefb_loader = set_dataset(livefb_meta, bs, img_dir, num_workers, preprocess3,
+                                            train_patch, False, set=0)
+agiqa_loader = set_dataset(agiqa_meta, bs, img_dir, num_workers, preprocess3,
+                                            train_patch, False, set=0)
 
-    koniq_meta = "/root/Data4ICCV/metas/metas_koniq.json"
-    koniq_loader = set_dataset(koniq_meta, 32, img_dir, num_workers, preprocess2,
-                                             15, True, set=2)
+koniq_meta = "/root/Data4ICCV/metas/metas_koniq.json"
+koniq_loader = set_dataset(koniq_meta, 32, img_dir, num_workers, preprocess2,
+                                            15, True, set=2)
 
-    train_loaders = [spaq_loader, liveitw_loader, livefb_loader, agiqa_loader]
-    test_loader = koniq_loader
+train_loaders = [spaq_loader, liveitw_loader, livefb_loader, agiqa_loader]
+test_loader = koniq_loader
 
-    result_pkl = {}
-    for epoch in range(0, num_epoch):
-        best_result, best_epoch, srcc_dict, all_result = train(
-            model, best_result, best_epoch, srcc_dict
-        )
-        scheduler.step()
+result_pkl = {}
+for epoch in range(0, num_epoch):
+    best_result, best_epoch, srcc_dict, all_result = train(
+        model, best_result, best_epoch, srcc_dict
+    )
+    scheduler.step()
 
-        result_pkl[str(epoch)] = all_result
+    result_pkl[str(epoch)] = all_result
 
-        print('...............current average best...............')
-        print('best average epoch:{}'.format(best_epoch))
-        print('best average result:{}'.format(best_result))
-        for dataset in srcc_dict.keys():
-            print_text = dataset + ':' + 'srcc:{}'.format(srcc_dict[dataset])
-            print(print_text)
+    print('...............current average best...............')
+    print('best average epoch:{}'.format(best_epoch))
+    print('best average result:{}'.format(best_result))
+    for dataset in srcc_dict.keys():
+        print_text = dataset + ':' + 'srcc:{}'.format(srcc_dict[dataset])
+        print(print_text)
 
-    pkl_name = os.path.join('checkpoints', str(session+1), 'all_results.pkl')
-    with open(pkl_name, 'wb') as f:
-        pickle.dump(result_pkl, f)
+pkl_name = os.path.join(f"checkpoints/{save_dir}/all_results.pkl")
+with open(pkl_name, 'wb') as f:
+    pickle.dump(result_pkl, f)
