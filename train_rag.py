@@ -62,7 +62,7 @@ def cal_fidelity_loss(pred_A, pred_B, gmos_A, gmos_B):
 
 
 ##############################general setup####################################
-save_dir = "2_nce+fidelity"
+save_dir = "2_nce+fidelity_w20"
 img_dir = "/root/Data4ICCV"
 seed = 20200626
 
@@ -72,7 +72,7 @@ np.random.seed(seed)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
-device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
 initial_lr = 5e-6
 num_epoch = 10
@@ -115,10 +115,10 @@ def train(model, best_result, best_epoch):
     for loader in train_loaders:
         loaders.append(iter(loader))
 
-    print(optimizer.state_dict()['param_groups'][0]['lr'])
-    if optimizer.state_dict()['param_groups'][0]['lr'] == 0:
+    print(optimizer.state_dict()["param_groups"][0]["lr"])
+    if optimizer.state_dict()["param_groups"][0]["lr"] == 0:
         scheduler.step()
-        print(optimizer.state_dict()['param_groups'][0]['lr'])
+        print(optimizer.state_dict()["param_groups"][0]["lr"])
     for step in range(num_steps_per_epoch):
         #total_loss = 0
         I_A_batch, text_A_batch, gmos_A_batch = [], [], []
@@ -132,11 +132,11 @@ def train(model, best_result, best_epoch):
                 sample_batched = next(loader)
                 loaders[dataset_idx] = loader
 
-            I_A, text_A, gmos_A = sample_batched['I_A'], sample_batched["text_A"], sample_batched['mos_A']
+            I_A, text_A, gmos_A = sample_batched["I_A"], sample_batched["text_A"], sample_batched["mos_A"]
             I_A_batch.append(I_A.to(device))
             text_A_batch += text_A
             gmos_A_batch.append(gmos_A.to(device))
-            I_B, text_B, gmos_B = sample_batched['I_B'], sample_batched["text_B"], sample_batched['mos_B']
+            I_B, text_B, gmos_B = sample_batched["I_B"], sample_batched["text_B"], sample_batched["mos_B"]
             I_B_batch.append(I_B.to(device))
             text_B_batch += text_B
             gmos_B_batch.append(gmos_B.to(device))
@@ -190,10 +190,10 @@ def train(model, best_result, best_epoch):
         else:
             ckpt_name = os.path.join(f"checkpoints/{save_dir}/ckpt.pt")
         torch.save({
-            'epoch': epoch,
-            'test_result': srcc,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
+            "epoch": epoch,
+            "test_result": srcc,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
         }, ckpt_name)
 
     return best_result, best_epoch
@@ -203,7 +203,7 @@ def eval(test_loader):
     model.eval()
     q_mos, q_pred = [], []
     for sample_batched in test_loader:
-        I, text, gmos = sample_batched['I_A'], sample_batched["text_A"], sample_batched['mos_A']
+        I, text, gmos = sample_batched["I_A"], sample_batched["text_A"], sample_batched["mos_A"]
         I = I.to(device)
         q_mos = q_mos + gmos.cpu().tolist()
         with torch.no_grad():

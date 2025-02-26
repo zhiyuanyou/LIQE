@@ -60,9 +60,11 @@ class ImageDataset(Dataset):
             if abs(sample_A["mos"] - sample_B["mos"]) > eps:
                 break
         sample = {
+            "image_path_A": sample_A["image_path"],
             "I_A": sample_A["I"],
             "text_A": sample_A["text"],
             "mos_A": sample_A["mos"],
+            "image_path_B": sample_B["image_path"],
             "I_B": sample_B["I"],
             "text_B": sample_B["text"],
             "mos_B": sample_B["mos"],
@@ -101,6 +103,7 @@ class ImageDataset(Dataset):
         text = meta["conversations"][1]["value"]
         mos = meta["gt_score_norm"]
         sample = {
+            "image_path": image_name,
             "I": patches,
             "text": text,
             "mos": float(mos),
