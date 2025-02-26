@@ -3,10 +3,9 @@ import json
 import torch
 import functools
 import numpy as np
-import pandas as pd
+import random
 from PIL import Image, ImageFile
 from torch.utils.data import Dataset
-from tqdm import tqdm
 
 IMG_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.ppm', '.bmp', '.pgm', '.tif']
 
@@ -53,6 +52,24 @@ class ImageDataset(Dataset):
         self.test = test
 
     def __getitem__(self, index):
+        eps = 1e-2
+        sample_A = self.get_oneitem(index)
+        while True:
+            index_B = random.randint(0, len(self) - 1)
+            sample_B = self.get_oneitem(index_B)
+            if abs(sample_A["mos"] - sample_B["mos"]) > eps:
+                break
+        sample = {
+            "I_A": sample_A["I"],
+            "text_A": sample_A["text"],
+            "mos_A": sample_A["mos"],
+            "I_B": sample_B["I"],
+            "text_B": sample_B["text"],
+            "mos_B": sample_B["mos"],
+        }
+        return sample
+
+    def get_oneitem(self, index):
         meta = self.metas[index]
         image_name = os.path.join(self.img_dir, meta["image"])
         I = self.loader(image_name)

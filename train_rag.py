@@ -24,18 +24,20 @@ class AlignModel(nn.Module):
         self.model_visual = model.visual
         self.model_text = SentenceTransformer("all-MiniLM-L6-v2")
         self.proj = nn.Linear(dim_text, dim_visual)
-        self.head = nn.Linear(dim_visual, 1)
+        self.head = nn.Linear(2 * dim_visual, 1)
 
-    def forward(self, img, text, mos):
+    def forward(self, img, text):
         batch_size, num_patch = img.shape[:2]
         img = img.view(-1, img.size(2), img.size(3), img.size(4))
         emb_img = self.model_visual(img)  # [B x N, 512]
-        pred = self.head(emb_img)
-        pred = pred.view(batch_size, num_patch, -1).mean(dim=1)
-        loss_mse = ((pred - mos) ** 2).mean()
-
         emb_text = self.model_text.encode(text, convert_to_tensor=True)  # [B, 384]
         emb_text = self.proj(emb_text)  # [B, 512]
+
+        emb_img_head = emb_img.view(batch_size, num_patch, -1)
+        emb_text_head = emb_text.unsqueeze(1).repeat(1, num_patch, 1)
+        pred = self.head(torch.cat([emb_img_head, emb_text_head], dim=2))
+        pred = pred.view(batch_size, num_patch, -1).mean(dim=1)
+
         cosine_similarity = F.cosine_similarity(
             emb_img.unsqueeze(1), emb_text.unsqueeze(0), dim=2
         )  # [B x N, B]
@@ -49,8 +51,15 @@ class AlignModel(nn.Module):
         loss_per_text = -sim_per_text.diagonal().log().mean()
         loss_nce = loss_per_img + loss_per_text
 
-        return loss_nce, loss_mse, pred
+        return loss_nce, pred
 
+
+def cal_fidelity_loss(pred_A, pred_B, gmos_A, gmos_B):
+    eps = 1e-8
+    gt = (gmos_A > gmos_B).float().detach()
+    pred = 0.5 * (1 + torch.erf((pred_A - pred_B) / 2))  # 2 -> sqrt(2 * (1**2 + 1**2))
+    loss = (1 - (pred * gt + eps).sqrt() - ((1 - pred) * (1 - gt) + eps).sqrt()).mean()
+    return loss
 
 
 ##############################general setup####################################
@@ -68,8 +77,9 @@ device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
 initial_lr = 5e-6
 num_epoch = 10
 num_steps_per_epoch = 1000
-bs = 16
+bs = 12
 train_patch = 3
+weight_score = 20.
 
 
 ##############################general setup####################################
@@ -111,10 +121,8 @@ def train(model, best_result, best_epoch, srcc_dict):
         print(optimizer.state_dict()['param_groups'][0]['lr'])
     for step in range(num_steps_per_epoch):
         #total_loss = 0
-        all_batch = []
-        text_batch = []
-        gmos_batch = []
-        num_sample_per_task = []
+        I_A_batch, text_A_batch, gmos_A_batch = [], [], []
+        I_B_batch, text_B_batch, gmos_B_batch = [], [], []
 
         for dataset_idx, loader in enumerate(loaders, 0):
             try:
@@ -124,19 +132,24 @@ def train(model, best_result, best_epoch, srcc_dict):
                 sample_batched = next(loader)
                 loaders[dataset_idx] = loader
 
-            x, text, gmos = sample_batched['I'], sample_batched["text"], sample_batched['mos']
-            x = x.to(device)
-            all_batch.append(x)
-            text_batch += text
-            gmos = gmos.to(device)
-            gmos_batch.append(gmos)
-            num_sample_per_task.append(x.size(0))
+            I_A, text_A, gmos_A = sample_batched['I_A'], sample_batched["text_A"], sample_batched['mos_A']
+            I_A_batch.append(I_A.to(device))
+            text_A_batch += text_A
+            gmos_A_batch.append(gmos_A.to(device))
+            I_B, text_B, gmos_B = sample_batched['I_B'], sample_batched["text_B"], sample_batched['mos_B']
+            I_B_batch.append(I_B.to(device))
+            text_B_batch += text_B
+            gmos_B_batch.append(gmos_B.to(device))
 
-        all_batch = torch.cat(all_batch, dim=0)  # [128, 3, 3, 224, 224]
-        gmos_batch = torch.cat(gmos_batch, dim=0)  # [128, ]
+        I_A_batch = torch.cat(I_A_batch, dim=0)  # [128, 3, 3, 224, 224]
+        gmos_A_batch = torch.cat(gmos_A_batch, dim=0)  # [128, ]
+        I_B_batch = torch.cat(I_B_batch, dim=0)  # [128, 3, 3, 224, 224]
+        gmos_B_batch = torch.cat(gmos_B_batch, dim=0)  # [128, ]
 
-        loss_nce, loss_mse, _ = model(all_batch, text_batch, gmos_batch)
-        loss = loss_nce + loss_mse
+        loss_nce_A, pred_A = model(I_A_batch, text_A_batch)
+        loss_nce_B, pred_B = model(I_B_batch, text_B_batch)
+        loss_score = cal_fidelity_loss(pred_A, pred_B, gmos_A_batch, gmos_B_batch)
+        loss = (loss_nce_A + loss_nce_B) + weight_score * loss_score
 
         optimizer.zero_grad()
         loss.backward()
@@ -150,16 +163,16 @@ def train(model, best_result, best_epoch, srcc_dict):
         duration = current_time - start_time
         running_duration = beta * running_duration + (1 - beta) * duration
         duration_corrected = running_duration / (1 - beta ** local_counter)
-        examples_per_sec = x.size(0) / duration_corrected
+        examples_per_sec = I_A.size(0) / duration_corrected
         format_str = (
             "(Epoch: %d, Step: %d / %d)"
-            "[Running Loss = %.4f] [Loss NCE = %.4f] [Loss MSE = %.4f] "
+            "[Running Loss = %.4f] [Loss NCE A = %.4f] [Loss NCE B = %.4f] [Loss Score = %.4f] "
             "(%.1f samples/sec; %.3f sec/batch)"
         )
         print(
             format_str % (
                 epoch, step + 1, num_steps_per_epoch, loss_corrected, 
-                loss_nce, loss_mse, examples_per_sec, duration_corrected
+                loss_nce_A, loss_nce_B, loss_score, examples_per_sec, duration_corrected
             )
         )
 
@@ -193,14 +206,12 @@ def eval(test_loader, phase, dataset):
     q_mos = []
     q_pred = []
 
-    for step, sample_batched in enumerate(test_loader, 0):
-        x, text, gmos = sample_batched['I'], sample_batched["text"], sample_batched['mos']
-
-        x = x.to(device)
-        gmos = gmos.to(device)
+    for sample_batched in test_loader:
+        I, text, gmos = sample_batched['I_A'], sample_batched["text_A"], sample_batched['mos_A']
+        I = I.to(device)
         q_mos = q_mos + gmos.cpu().tolist()
         with torch.no_grad():
-            _, _, pred = model(x, text, gmos)
+            _, _, pred = model(I, text)
         q_pred = q_pred + pred.squeeze(1).cpu().tolist()
 
     srcc = scipy.stats.mstats.spearmanr(x=q_mos, y=q_pred)[0]
