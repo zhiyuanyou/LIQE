@@ -1,7 +1,6 @@
 import clip
 import numpy as np
 import os
-import pickle
 import random
 import scipy.stats
 import time
@@ -103,7 +102,7 @@ def freeze_model(opt):
             p.requires_grad = False
 
 
-def train(model, best_result, best_epoch, srcc_dict):
+def train(model, best_result, best_epoch):
     start_time = time.time()
     beta = 0.9
     running_loss = 0 if epoch == 0 else train_loss[-1]
@@ -182,31 +181,27 @@ def train(model, best_result, best_epoch, srcc_dict):
 
         train_loss.append(loss_corrected)
 
-    all_result = {'val':{}, 'test':{}}
     if (epoch >= 0):
-        srcc = eval(test_loader, phase='val', dataset='koniq10k')
-        print('**********New overall results!**********')
-        best_epoch = epoch
-        best_result = srcc
-        srcc_dict['koniq10k'] = srcc
-
+        srcc = eval(test_loader)
         os.makedirs(os.path.join(f"checkpoints/{save_dir}"), exist_ok=True)
-        ckpt_name = os.path.join(f"checkpoints/{save_dir}/ckpt.pt")
+        if srcc > best_result:
+            best_epoch, best_result = epoch, srcc
+            ckpt_name = os.path.join(f"checkpoints/{save_dir}/best.pt")
+        else:
+            ckpt_name = os.path.join(f"checkpoints/{save_dir}/ckpt.pt")
         torch.save({
             'epoch': epoch,
+            'test_result': srcc,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
-            'all_results': all_result
-        }, ckpt_name)  # just change to your preferred folder/filename
+        }, ckpt_name)
 
-    return best_result, best_epoch, srcc_dict, all_result
+    return best_result, best_epoch
 
 
-def eval(test_loader, phase, dataset):
+def eval(test_loader):
     model.eval()
-    q_mos = []
-    q_pred = []
-
+    q_mos, q_pred = [], []
     for sample_batched in test_loader:
         I, text, gmos = sample_batched['I_A'], sample_batched["text_A"], sample_batched['mos_A']
         I = I.to(device)
@@ -214,11 +209,8 @@ def eval(test_loader, phase, dataset):
         with torch.no_grad():
             _, pred = model(I, text)
         q_pred = q_pred + pred.squeeze(1).cpu().tolist()
-
     srcc = scipy.stats.mstats.spearmanr(x=q_mos, y=q_pred)[0]
-
-    print_text = dataset + ' ' + phase + ' finished'
-    print(print_text)
+    print(f"Evaluation Finished with SRCC: {srcc}")
     return srcc
 
 
@@ -226,8 +218,10 @@ num_workers = 8
 model = AlignModel().to(device)
 
 optimizer = torch.optim.AdamW(
-    model.parameters(), lr=initial_lr,
-    weight_decay=0.001)
+    model.parameters(),
+    lr=initial_lr,
+    weight_decay=0.001
+)
 
 scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=5)
 
@@ -238,9 +232,6 @@ freeze_model(opt)
 
 best_result = 0
 best_epoch = 0
-
-# avg
-srcc_dict = {'koniq10k': 0.0}
 
 spaq_meta = "/root/Data4ICCV/metas/metas_spaq.json"
 liveitw_meta = "/root/Data4ICCV/metas/metas_liveitw.json"
@@ -263,22 +254,9 @@ koniq_loader = set_dataset(koniq_meta, 32, img_dir, num_workers, preprocess2,
 train_loaders = [spaq_loader, liveitw_loader, livefb_loader, agiqa_loader]
 test_loader = koniq_loader
 
-result_pkl = {}
 for epoch in range(0, num_epoch):
-    best_result, best_epoch, srcc_dict, all_result = train(
-        model, best_result, best_epoch, srcc_dict
-    )
+    best_result, best_epoch = train(model, best_result, best_epoch)
     scheduler.step()
-
-    result_pkl[str(epoch)] = all_result
-
-    print('...............current average best...............')
-    print('best average epoch:{}'.format(best_epoch))
-    print('best average result:{}'.format(best_result))
-    for dataset in srcc_dict.keys():
-        print_text = dataset + ':' + 'srcc:{}'.format(srcc_dict[dataset])
-        print(print_text)
-
-pkl_name = os.path.join(f"checkpoints/{save_dir}/all_results.pkl")
-with open(pkl_name, 'wb') as f:
-    pickle.dump(result_pkl, f)
+    print("=" * 100)
+    print("Current best epoch: {}".format(best_epoch))
+    print("Current best result: {}".format(best_result))
